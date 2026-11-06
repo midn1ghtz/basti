@@ -501,16 +501,13 @@ body.menu-open .site-header { transform: none; z-index: 70; }
 /* ========================= end GLASS THUMBNAILS ========================= */
 
 
-/* Hand-drawn scribble lines between the gallery thumbnails (main.js) */
-.gallery { position: relative; }
-.gallery > .piece { position: relative; z-index: 1; }
-.scribbles { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; overflow: visible; }
-.scribbles path {
-  fill: none; stroke: rgba(var(--accent-rgb), .75); stroke-width: 2.4;
-  stroke-linecap: round; stroke-linejoin: round;
-  transition: stroke-dashoffset .25s linear;
-}
-.scribbles path.scribbles__echo { stroke: rgba(var(--accent-rgb), .35); stroke-width: 1.2; }
+/* Hand-drawn marker lines between the ring cards in the hero (main.js).
+   Always behind every card (z-index 0 < back half 1 < wordmark 3 < front half 4). */
+.hero-scribbles { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; overflow: visible; }
+.hero-scribbles path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.hero-scribbles__main { stroke: rgba(var(--accent-rgb), .9); stroke-width: 3.2; }
+.hero-scribbles__pass { stroke: rgba(var(--accent-rgb), .55); stroke-width: 1.8; }
+.hero-scribbles__hair { stroke: rgba(var(--accent-rgb), .35); stroke-width: 1; }
 
 /* 9. About / statement --------------------------------------------------- */
 .approach__grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 32px clamp(24px, 4vw, 64px); align-items: start; }
