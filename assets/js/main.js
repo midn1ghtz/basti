@@ -328,99 +328,70 @@
     }).observe(ticker);
   }
 
-  /* ---------- Gallery: hand-drawn scribble lines connect the thumbnails, draw in on scroll and "boil" softly ---------- */
-  const gallery = $('.gallery');
-  if (gallery) {
+  /* ---------- Hero: hand-drawn blue marker lines link the ring cards and move with them ---------- */
+  const heroStage = $('.showcase__sticky');
+  if (heroStage && ring) {
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
-    svg.classList.add('scribbles');
+    svg.classList.add('hero-scribbles');
     svg.setAttribute('aria-hidden', 'true');
-    gallery.prepend(svg);
-    const medias = $$('.piece__media', gallery);
-    const links = [];
-    for (let i = 0; i < medias.length - 1; i++) {
+    heroStage.appendChild(svg);
+    const cards = $$('.showcase__card .tilt', ring);
+    const strokes = ['hero-scribbles__main', 'hero-scribbles__pass', 'hero-scribbles__hair'];
+    const defs = document.createElementNS(NS, 'defs');
+    svg.appendChild(defs);
+    const links = cards.map((_, i) => {
+      // each link gets its own blur, so lines further back are softer (depth of field like the cards)
+      const f = document.createElementNS(NS, 'filter');
+      f.id = 'scribble-dof-' + i;
+      f.setAttribute('x', '-20%'); f.setAttribute('y', '-20%'); f.setAttribute('width', '140%'); f.setAttribute('height', '140%');
+      const blur = document.createElementNS(NS, 'feGaussianBlur');
+      blur.setAttribute('stdDeviation', '0');
+      f.appendChild(blur); defs.appendChild(f);
       const g = document.createElementNS(NS, 'g');
-      const a = document.createElementNS(NS, 'path'); // main stroke
-      const b = document.createElementNS(NS, 'path'); // second, thinner pass like a pen going over it twice
-      b.classList.add('scribbles__echo');
-      g.append(a, b); svg.append(g);
-      links.push({ a, b, from: medias[i], to: medias[i + 1], seed: i * 7.3 + 1, len: 0, p: 0, loopSide: i % 2 ? 1 : -1 });
-    }
-    // tiny deterministic noise so each "boil" frame differs a little
+      g.setAttribute('filter', `url(#scribble-dof-${i})`);
+      const paths = strokes.map((cls) => { const p = document.createElementNS(NS, 'path'); p.classList.add(cls); g.appendChild(p); return p; });
+      svg.appendChild(g);
+      return { i, paths, g, blur, side: i % 2 ? 1 : -1, b: -1 };
+    });
     const rnd = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
-    const centre = (el) => {
-      const r = el.getBoundingClientRect(), g = gallery.getBoundingClientRect();
-      return { x: r.left - g.left + r.width / 2, y: r.top - g.top + r.height / 2, w: r.width, h: r.height };
-    };
-    const buildPath = (L, frame, offset) => {
-      const A = centre(L.from), B = centre(L.to);
+    let boil = 0, lastBoil = 0, raf = 0;
+    const line = (A, B, L, pass) => {
       const dx = B.x - A.x, dy = B.y - A.y, dist = Math.hypot(dx, dy) || 1;
-      const nx = -dy / dist, ny = dx / dist;                 // perpendicular
-      const bend = Math.min(140, dist * 0.18) * L.loopSide;  // gentle arc
-      const loopR = Math.min(46, dist * 0.06);
-      const pts = [];
-      const N = 70;
+      const nx = -dy / dist, ny = dx / dist;
+      const bend = dist * 0.12 * L.side;
+      const N = 22, amp = pass === 0 ? 2.6 : pass === 1 ? 5 : 7;
+      const off = (pass - 1) * 3.6; // the passes sit slightly apart, like a marker drawn over twice
+      let d = '';
       for (let k = 0; k <= N; k++) {
         const t = k / N;
-        let x = A.x + dx * t + nx * Math.sin(Math.PI * t) * bend;
-        let y = A.y + dy * t + ny * Math.sin(Math.PI * t) * bend;
-        // a little loop / curl around the middle
-        if (t > 0.44 && t < 0.62) {
-          const u = (t - 0.44) / 0.18, ang = u * Math.PI * 2;
-          x += (Math.cos(ang) - 1) * loopR * -L.loopSide + Math.sin(ang) * loopR * 0.2;
-          y += Math.sin(ang) * loopR;
-        }
-        // hand jitter (changes per boil frame)
-        const j = 2.2 + offset;
-        x += (rnd(L.seed + k * 1.7 + frame * 13.1) - 0.5) * j;
-        y += (rnd(L.seed + k * 2.3 + frame * 7.9) - 0.5) * j;
-        pts.push([x, y]);
-      }
-      // smooth through midpoints
-      let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-      for (let k = 1; k < pts.length - 1; k++) {
-        const mx = (pts[k][0] + pts[k + 1][0]) / 2, my = (pts[k][1] + pts[k + 1][1]) / 2;
-        d += ` Q${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+        const s = L.i * 31 + k * 3.7 + pass * 11 + boil * 5.3;
+        const x = A.x + dx * t + nx * (Math.sin(Math.PI * t) * bend + off) + (rnd(s) - 0.5) * amp;
+        const y = A.y + dy * t + ny * (Math.sin(Math.PI * t) * bend + off) + (rnd(s + 1.9) - 0.5) * amp;
+        d += (k ? ' L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
       }
       return d;
     };
-    let frame = 0;
-    const redraw = () => {
-      svg.setAttribute('width', gallery.offsetWidth);
-      svg.setAttribute('height', gallery.offsetHeight);
+    const draw = (now) => {
+      if (now - lastBoil > 160 && !reduceMotion) { boil = (boil + 1) % 7; lastBoil = now; }
+      const s = heroStage.getBoundingClientRect();
+      svg.setAttribute('viewBox', `0 0 ${s.width.toFixed(0)} ${s.height.toFixed(0)}`);
+      const c = cards.map((el) => { const r = el.getBoundingClientRect(); return { x: r.left - s.left + r.width / 2, y: r.top - s.top + r.height / 2 }; });
+      const ang = ringAngleNow(), stepDeg = 360 / c.length;
+      const depthOf = (i) => (1 - Math.cos(((ang + i * stepDeg) * Math.PI) / 180)) / 2;
       links.forEach((L) => {
-        L.a.setAttribute('d', buildPath(L, frame, 0));
-        L.b.setAttribute('d', buildPath(L, frame + 0.5, 1.5));
-        L.len = L.a.getTotalLength();
-        [L.a, L.b].forEach((p) => p.style.strokeDasharray = `${L.len} ${L.len}`);
+        const A = c[L.i], B = c[(L.i + 1) % c.length];
+        L.paths.forEach((p, pass) => p.setAttribute('d', line(A, B, L, pass)));
+        const depth = (depthOf(L.i) + depthOf((L.i + 1) % c.length)) / 2;
+        const b = Math.round(depth * depth * 24) / 4; // same curve as the cards: 0 … 6 px
+        if (b !== L.b) { L.b = b; L.blur.setAttribute('stdDeviation', b); L.g.style.opacity = (1 - depth * 0.35).toFixed(2); }
       });
-      progress();
+      raf = requestAnimationFrame(draw);
     };
-    // draw-in: each line follows the scroll position
-    const progress = () => {
-      const vh = window.innerHeight;
-      links.forEach((L) => {
-        const a = L.from.getBoundingClientRect(), b = L.to.getBoundingClientRect();
-        const top = Math.min(a.top, b.top), bottom = Math.max(a.bottom, b.bottom);
-        const p = reduceMotion ? 1 : clamp((vh * 0.9 - top) / ((bottom - top) * 0.9 + vh * 0.25));
-        const off = (L.len * (1 - p)).toFixed(1);
-        L.a.style.strokeDashoffset = off;
-        L.b.style.strokeDashoffset = off;
-      });
-    };
-    redraw();
-    window.addEventListener('resize', () => requestAnimationFrame(redraw));
-    window.addEventListener('scroll', () => requestAnimationFrame(progress), { passive: true });
-    document.fonts?.ready.then(redraw);
-    $$('img', gallery).forEach((im) => im.complete || im.addEventListener('load', redraw, { once: true }));
-    // "boil": redraw with new jitter a few times per second, only while the gallery is on screen
-    if (!reduceMotion) {
-      let timer = 0;
-      new IntersectionObserver(([en]) => {
-        clearInterval(timer);
-        if (en.isIntersecting) timer = setInterval(() => { frame = (frame + 1) % 6; redraw(); }, 220);
-      }).observe(gallery);
-    }
+    new IntersectionObserver(([en]) => {
+      if (en.isIntersecting && !raf) raf = requestAnimationFrame(draw);
+      else if (!en.isIntersecting) { cancelAnimationFrame(raf); raf = 0; }
+    }).observe(heroStage);
   }
 
   /* ---------- Statement: words light up while scrolling ---------- */
