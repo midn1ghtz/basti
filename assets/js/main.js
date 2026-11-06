@@ -81,10 +81,11 @@
     else if (!p && pauseStart) { pausedMs += performance.now() - pauseStart; pauseStart = 0; }
   };
   const ringClockStart = performance.now();
+  let ringSpin = 0; // extra degrees from swiping the ring on touch screens
   const ringAngleNow = () => {
-    if (reduceMotion) return -30;
+    if (reduceMotion) return -30 + ringSpin;
     const now = pauseStart || performance.now();
-    return -30 - ((now - ringClockStart - pausedMs) / 1000) * RING_SPEED;
+    return -30 + ringSpin - ((now - ringClockStart - pausedMs) / 1000) * RING_SPEED;
   };
   let openVideo = null;
   /* ---------- Thumbnails breathe softly, each on its own rhythm ---------- */
@@ -161,6 +162,85 @@
         else if (!en.isIntersecting) { cancelAnimationFrame(raf); raf = 0; }
       }).observe(showcase);
     }
+  }
+
+  /* ---------- Phones: swipe sideways over the hero to spin the ring (with inertia) ---------- */
+  const heroSticky = $('.showcase__sticky');
+  if (heroSticky && ring) {
+    let lastX = 0, startX = 0, startY = 0, vel = 0, dragging = false, moved = false, inertia = 0;
+    const DEG_PER_PX = 0.3;
+    const glide = () => {
+      vel *= 0.92;
+      ringSpin += vel;
+      inertia = Math.abs(vel) > 0.02 ? requestAnimationFrame(glide) : 0;
+    };
+    heroSticky.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch') return;
+      dragging = true; moved = false;
+      startX = lastX = e.clientX; startY = e.clientY; vel = 0;
+      cancelAnimationFrame(inertia); inertia = 0;
+    });
+    heroSticky.addEventListener('pointermove', (e) => {
+      if (!dragging || e.pointerType !== 'touch') return;
+      const dx = e.clientX - lastX;
+      if (!moved && Math.abs(e.clientX - startX) > 8 && Math.abs(e.clientX - startX) > Math.abs(e.clientY - startY)) moved = true;
+      if (!moved) return;
+      ringSpin += dx * DEG_PER_PX;
+      vel = dx * DEG_PER_PX;
+      lastX = e.clientX;
+    });
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved && !inertia) inertia = requestAnimationFrame(glide);
+    };
+    heroSticky.addEventListener('pointerup', end);
+    heroSticky.addEventListener('pointercancel', end);
+    // a swipe should not also open a video
+    heroSticky.addEventListener('click', (e) => { if (moved) { e.stopImmediatePropagation(); moved = false; } }, true);
+  }
+
+  /* ---------- Phones: tilt the headline and the ring cards with the phone (gyroscope) ---------- */
+  if (!finePointer && !reduceMotion && 'DeviceOrientationEvent' in window) {
+    const mark = $('.showcase__wordmark');
+    const tiltEls = $$('[data-ring] .tilt');
+    const cur = { x: 0, y: 0 }, tgt = { x: 0, y: 0 };
+    let base = null, raf = 0;
+    const onOrient = (e) => {
+      if (e.beta == null || e.gamma == null) return;
+      if (!base) base = { b: e.beta, g: e.gamma };
+      tgt.y = clamp((e.gamma - base.g) / 25, -1, 1);   // left / right
+      tgt.x = clamp((e.beta - base.b) / 25, -1, 1);    // towards / away
+      if (!raf) raf = requestAnimationFrame(step);
+    };
+    const step = () => {
+      cur.x += (tgt.x - cur.x) * 0.12; cur.y += (tgt.y - cur.y) * 0.12;
+      if (mark) {
+        mark.style.setProperty('--rx', (-cur.x * 12).toFixed(2) + 'deg');
+        mark.style.setProperty('--ry', (cur.y * 14).toFixed(2) + 'deg');
+      }
+      tiltEls.forEach((el) => {
+        el.style.setProperty('--rx', (-cur.x * 10).toFixed(2) + 'deg');
+        el.style.setProperty('--ry', (cur.y * 10).toFixed(2) + 'deg');
+        el.style.setProperty('--gx', (50 + cur.y * 40).toFixed(1) + '%');
+        el.style.setProperty('--gy', (50 + cur.x * 40).toFixed(1) + '%');
+        el.style.setProperty('--lift', Math.min(1, Math.hypot(cur.x, cur.y)).toFixed(2));
+      });
+      raf = Math.abs(tgt.x - cur.x) + Math.abs(tgt.y - cur.y) > 0.002 ? requestAnimationFrame(step) : 0;
+    };
+    const listen = () => window.addEventListener('deviceorientation', onOrient, { passive: true });
+    // iOS asks for permission, and only after a tap
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const ask = () => {
+        DeviceOrientationEvent.requestPermission().then((s) => { if (s === 'granted') listen(); }).catch(() => {});
+        window.removeEventListener('touchend', ask);
+      };
+      window.addEventListener('touchend', ask, { once: true });
+    } else {
+      listen();
+    }
+    // re-centre when the phone is put down / picked up again
+    document.addEventListener('visibilitychange', () => { base = null; });
   }
 
   /* ---------- Headline: watery warp of the whole word + 3D tilt towards the cursor ---------- */
