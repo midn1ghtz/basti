@@ -328,6 +328,101 @@
     }).observe(ticker);
   }
 
+  /* ---------- Gallery: hand-drawn scribble lines connect the thumbnails, draw in on scroll and "boil" softly ---------- */
+  const gallery = $('.gallery');
+  if (gallery) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.classList.add('scribbles');
+    svg.setAttribute('aria-hidden', 'true');
+    gallery.prepend(svg);
+    const medias = $$('.piece__media', gallery);
+    const links = [];
+    for (let i = 0; i < medias.length - 1; i++) {
+      const g = document.createElementNS(NS, 'g');
+      const a = document.createElementNS(NS, 'path'); // main stroke
+      const b = document.createElementNS(NS, 'path'); // second, thinner pass like a pen going over it twice
+      b.classList.add('scribbles__echo');
+      g.append(a, b); svg.append(g);
+      links.push({ a, b, from: medias[i], to: medias[i + 1], seed: i * 7.3 + 1, len: 0, p: 0, loopSide: i % 2 ? 1 : -1 });
+    }
+    // tiny deterministic noise so each "boil" frame differs a little
+    const rnd = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+    const centre = (el) => {
+      const r = el.getBoundingClientRect(), g = gallery.getBoundingClientRect();
+      return { x: r.left - g.left + r.width / 2, y: r.top - g.top + r.height / 2, w: r.width, h: r.height };
+    };
+    const buildPath = (L, frame, offset) => {
+      const A = centre(L.from), B = centre(L.to);
+      const dx = B.x - A.x, dy = B.y - A.y, dist = Math.hypot(dx, dy) || 1;
+      const nx = -dy / dist, ny = dx / dist;                 // perpendicular
+      const bend = Math.min(140, dist * 0.18) * L.loopSide;  // gentle arc
+      const loopR = Math.min(46, dist * 0.06);
+      const pts = [];
+      const N = 70;
+      for (let k = 0; k <= N; k++) {
+        const t = k / N;
+        let x = A.x + dx * t + nx * Math.sin(Math.PI * t) * bend;
+        let y = A.y + dy * t + ny * Math.sin(Math.PI * t) * bend;
+        // a little loop / curl around the middle
+        if (t > 0.44 && t < 0.62) {
+          const u = (t - 0.44) / 0.18, ang = u * Math.PI * 2;
+          x += (Math.cos(ang) - 1) * loopR * -L.loopSide + Math.sin(ang) * loopR * 0.2;
+          y += Math.sin(ang) * loopR;
+        }
+        // hand jitter (changes per boil frame)
+        const j = 2.2 + offset;
+        x += (rnd(L.seed + k * 1.7 + frame * 13.1) - 0.5) * j;
+        y += (rnd(L.seed + k * 2.3 + frame * 7.9) - 0.5) * j;
+        pts.push([x, y]);
+      }
+      // smooth through midpoints
+      let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+      for (let k = 1; k < pts.length - 1; k++) {
+        const mx = (pts[k][0] + pts[k + 1][0]) / 2, my = (pts[k][1] + pts[k + 1][1]) / 2;
+        d += ` Q${pts[k][0].toFixed(1)} ${pts[k][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+      }
+      return d;
+    };
+    let frame = 0;
+    const redraw = () => {
+      svg.setAttribute('width', gallery.offsetWidth);
+      svg.setAttribute('height', gallery.offsetHeight);
+      links.forEach((L) => {
+        L.a.setAttribute('d', buildPath(L, frame, 0));
+        L.b.setAttribute('d', buildPath(L, frame + 0.5, 1.5));
+        L.len = L.a.getTotalLength();
+        [L.a, L.b].forEach((p) => p.style.strokeDasharray = `${L.len} ${L.len}`);
+      });
+      progress();
+    };
+    // draw-in: each line follows the scroll position
+    const progress = () => {
+      const vh = window.innerHeight;
+      links.forEach((L) => {
+        const a = L.from.getBoundingClientRect(), b = L.to.getBoundingClientRect();
+        const top = Math.min(a.top, b.top), bottom = Math.max(a.bottom, b.bottom);
+        const p = reduceMotion ? 1 : clamp((vh * 0.9 - top) / ((bottom - top) * 0.9 + vh * 0.25));
+        const off = (L.len * (1 - p)).toFixed(1);
+        L.a.style.strokeDashoffset = off;
+        L.b.style.strokeDashoffset = off;
+      });
+    };
+    redraw();
+    window.addEventListener('resize', () => requestAnimationFrame(redraw));
+    window.addEventListener('scroll', () => requestAnimationFrame(progress), { passive: true });
+    document.fonts?.ready.then(redraw);
+    $$('img', gallery).forEach((im) => im.complete || im.addEventListener('load', redraw, { once: true }));
+    // "boil": redraw with new jitter a few times per second, only while the gallery is on screen
+    if (!reduceMotion) {
+      let timer = 0;
+      new IntersectionObserver(([en]) => {
+        clearInterval(timer);
+        if (en.isIntersecting) timer = setInterval(() => { frame = (frame + 1) % 6; redraw(); }, 220);
+      }).observe(gallery);
+    }
+  }
+
   /* ---------- Statement: words light up while scrolling ---------- */
   const statement = $('[data-statement]');
   let words = [];
