@@ -74,7 +74,9 @@
   const showcase = $('[data-showcase]');
   const ring = $('[data-ring]');
   // Ring angle comes from one shared clock, so the title ticker can follow it even when the ring is off screen.
-  const RING_SPEED = 4; // degrees per second
+  // The ring is the core of the page, so it keeps turning even with reduced-motion settings
+  // (Android battery saver turns those on) — just more slowly.
+  const RING_SPEED = reduceMotion ? 2 : 4; // degrees per second
   let ringAngle = -30, pausedMs = 0, pauseStart = 0;
   const setRingPaused = (p) => {
     if (p && !pauseStart) pauseStart = performance.now();
@@ -83,7 +85,6 @@
   const ringClockStart = performance.now();
   let ringSpin = 0; // extra degrees from swiping the ring on touch screens
   const ringAngleNow = () => {
-    if (reduceMotion) return -30 + ringSpin;
     const now = pauseStart || performance.now();
     return -30 + ringSpin - ((now - ringClockStart - pausedMs) / 1000) * RING_SPEED;
   };
@@ -148,9 +149,7 @@
       });
     };
 
-    if (reduceMotion) {
-      setRot(-30);
-    } else {
+    {
       let raf = 0;
       const tick = () => {
         ringAngle = ringAngleNow();
